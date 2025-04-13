@@ -1,46 +1,39 @@
-// Assuming the existing proxy.js uses something like 'http' or 'https' modules
+// proxy.js
+
 const http = require('http');
-const https = require('https');
+const httpProxy = require('http-proxy');
 const config = require('./config.json');
+const { URL } = require('url');
 
-const targetHost = 'example.com'; // Replace with the actual target host
-const targetPort = 80;
-
-const proxy = http.createServer((req, res) => {
-  
-  if (config.interceptionEnabled) {
-    console.log('Intercepted Request:', req.method, req.url);
-    // Log request headers as well in a more robust implementation
-    console.log('Headers:', req.headers);
+function validateConfig(config) {
+  try {
+    new URL(config.target);
+    return true;
+  } catch (err) {
+    console.error('Invalid target URL in config:', err.message);
+    return false;
   }
+}
 
-  const options = {
-    hostname: targetHost,
-    port: targetPort,
-    path: req.url,
-    method: req.method,
-    headers: req.headers
-  };
+if (!validateConfig(config)) {
+  console.error('Configuration is invalid. Proxy will not start.');
+  process.exit(1);
+}
 
-  const proxyReq = http.request(options, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode, proxyRes.headers);
-    proxyRes.pipe(res, { end: true });
-  });
+const proxy = httpProxy.createProxyServer({});
 
-  req.pipe(proxyReq, { end: true });
-
-  proxyReq.on('error', (err) => {
-    console.error('Proxy Request Error:', err);
+const server = http.createServer((req, res) => {
+  proxy.web(req, res, {
+    target: config.target,
+    changeOrigin: true
+  }, (err) => {
+    console.error('Proxy error:', err);
     res.writeHead(500, { 'Content-Type': 'text/plain' });
-    res.end('Proxy Error');
-  });
-
-  req.on('error', (err) => {
-    console.error('Request Error:', err);
+    res.end('Proxy error occurred.');
   });
 });
 
-const port = 3000;
-proxy.listen(port, () => {
+const port = config.port || 3000;
+server.listen(port, () => {
   console.log(`Proxy server listening on port ${port}`);
 });
