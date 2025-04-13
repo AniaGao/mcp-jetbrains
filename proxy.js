@@ -1,45 +1,46 @@
-// Import necessary modules (assuming http and http-proxy are used)
+// Assuming the existing proxy.js uses something like 'http' or 'https' modules
 const http = require('http');
-const httpProxy = require('http-proxy');
+const https = require('https');
+const config = require('./config.json');
 
-// Create a proxy server
-const proxy = httpProxy.createProxyServer({});
+const targetHost = 'example.com'; // Replace with the actual target host
+const targetPort = 80;
 
-// Response Logging Middleware
-const responseLoggingMiddleware = (req, res, proxyRes) => {
-  const now = new Date();
-  const timestamp = now.toISOString();
-  const url = req.url;
-  const statusCode = proxyRes.statusCode;
-  const headers = proxyRes.headers;
+const proxy = http.createServer((req, res) => {
+  
+  if (config.interceptionEnabled) {
+    console.log('Intercepted Request:', req.method, req.url);
+    // Log request headers as well in a more robust implementation
+    console.log('Headers:', req.headers);
+  }
 
-  console.log(`[${timestamp}] Response: ${url} - Status: ${statusCode}`);
-  console.log('Headers:', headers);
-};
+  const options = {
+    hostname: targetHost,
+    port: targetPort,
+    path: req.url,
+    method: req.method,
+    headers: req.headers
+  };
 
-// Create a server that listens for requests
-const server = http.createServer(function(req, res) {
-  // Define the target URL (where to forward the requests - change as needed)
-  const target = 'http://localhost:3000'; // Example target
-
-  // Listen for the 'proxyRes' event (response from the target server)
-  proxy.on('proxyRes', (proxyRes, req, res) => {
-    responseLoggingMiddleware(req, res, proxyRes);
+  const proxyReq = http.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res, { end: true });
   });
 
-  // Handle proxy errors
-  proxy.on('error', function (err, req, res) {
-    console.error('Proxy error:', err);
+  req.pipe(proxyReq, { end: true });
+
+  proxyReq.on('error', (err) => {
+    console.error('Proxy Request Error:', err);
     res.writeHead(500, { 'Content-Type': 'text/plain' });
     res.end('Proxy Error');
   });
 
-  // Forward the request to the target
-  proxy.web(req, res, { target: target });
+  req.on('error', (err) => {
+    console.error('Request Error:', err);
+  });
 });
 
-// Start the server
-const port = 8000; // Or read from config
-server.listen(port, () => {
-  console.log(`Proxy server running on port ${port}`);
+const port = 3000;
+proxy.listen(port, () => {
+  console.log(`Proxy server listening on port ${port}`);
 });
