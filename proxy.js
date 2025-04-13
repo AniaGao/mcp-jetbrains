@@ -1,39 +1,49 @@
 // proxy.js
+const express = require('express');
+const axios = require('axios');
 
-const http = require('http');
-const httpProxy = require('http-proxy');
-const config = require('./config.json');
-const { URL } = require('url');
+const app = express();
+const targetUrl = process.env.TARGET_URL || 'http://localhost:3001'; // Default target URL
 
-function validateConfig(config) {
-  try {
-    new URL(config.target);
-    return true;
-  } catch (err) {
-    console.error('Invalid target URL in config:', err.message);
-    return false;
-  }
-}
+app.use((req, res) => {
+  axios({
+    method: req.method,
+    url: `${targetUrl}${req.url}`,
+    headers: req.headers,
+    data: req.body,
+    responseType: 'stream'
+  })
+  .then(response => {
+    res.writeHead(response.status, response.headers);
+    response.data.pipe(res);
+  })
+  .catch(error => {
+    if (error.response) {
+      // The request was made and the server responded with a status code
+      // that falls out of the range of 2xx
+      console.error("Error response from target:", error.response.status, error.response.data);
+      res.writeHead(error.response.status, error.response.headers);
+      error.response.data.pipe(res);
 
-if (!validateConfig(config)) {
-  console.error('Configuration is invalid. Proxy will not start.');
-  process.exit(1);
-}
-
-const proxy = httpProxy.createProxyServer({});
-
-const server = http.createServer((req, res) => {
-  proxy.web(req, res, {
-    target: config.target,
-    changeOrigin: true
-  }, (err) => {
-    console.error('Proxy error:', err);
-    res.writeHead(500, { 'Content-Type': 'text/plain' });
-    res.end('Proxy error occurred.');
+    } else if (error.request) {
+      // The request was made but no response was received
+      console.error("No response received from target:", error.request);
+      res.status(500).send('Error: No response from target server.');
+    } else {
+      // Something happened in setting up the request that triggered an Error
+      console.error("Error setting up the request:", error.message);
+      res.status(500).send('Error: Could not connect to target server.');
+    }
   });
 });
 
-const port = config.port || 3000;
-server.listen(port, () => {
-  console.log(`Proxy server listening on port ${port}`);
-});
+module.exports = app; // Export the app instance
+
+// Start the server only if this file is run directly
+if (require.main === module) {
+  const port = process.env.PORT || 3000;
+  app.listen(port, () => {
+    console.log(`Proxy server listening on port ${port}`);
+    console.log(`Proxying requests to ${targetUrl}`);
+  });
+}
