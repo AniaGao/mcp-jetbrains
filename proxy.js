@@ -4,55 +4,47 @@ const http = require('http');
 const https = require('https');
 const url = require('url');
 
-// Function to handle proxy requests
-const handleProxyRequest = (req, res) => {
-  try {
-    const targetURL = req.headers['x-target-url'];
+// Middleware to log incoming requests
+const requestLogger = (req, res, next) => {
+  const timestamp = new Date().toISOString();
+  const method = req.method;
+  const url = req.url;
+  const headers = req.headers;
 
-    if (!targetURL) {
-      res.writeHead(400, { 'Content-Type': 'text/plain' });
-      res.end('Missing x-target-url header');
-      return;
-    }
+  console.log(`[${timestamp}] ${method} ${url}`);
+  console.log("Headers:", headers);
+  next(); // Pass control to the next middleware or route handler
+};
 
-    const parsedURL = url.parse(targetURL);
+const server = http.createServer((req, res) => {
+  requestLogger(req, res, () => {
+    // Log the request
+
+    const target = url.parse(req.url);
     const options = {
-      hostname: parsedURL.hostname,
-      port: parsedURL.port || (parsedURL.protocol === 'https:' ? 443 : 80),
-      path: parsedURL.path,
-      method: req.method,
-      headers: req.headers,
+        hostname: target.hostname,
+        port: target.port || 80,
+        path: target.path,
+        method: req.method,
+        headers: req.headers
     };
 
-    // Remove the x-target-url header so it's not sent to the target server
-    delete options.headers['x-target-url'];
-
-    const protocol = parsedURL.protocol === 'https:' ? https : http;
-
-    const proxyReq = protocol.request(options, (proxyRes) => {
-      res.writeHead(proxyRes.statusCode, proxyRes.headers);
-      proxyRes.pipe(res, { end: true });
-    });
-
-    proxyReq.on('error', (err) => {
-      console.error('Proxy request error:', err);
-      res.writeHead(500, { 'Content-Type': 'text/plain' });
-      res.end('Proxy Error');
+    const proxyReq = http.request(options, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
     });
 
     req.pipe(proxyReq, { end: true });
 
-  } catch (error) {
-    console.error('Unexpected error:', error);
-    res.writeHead(500, { 'Content-Type': 'text/plain' });
-    res.end('Proxy Error');
-  }
-};
+    proxyReq.on('error', (err) => {
+        console.error('Proxy request error:', err);
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Proxy error');
+    });
+  });
+});
 
-// Create HTTP server
-const server = http.createServer(handleProxyRequest);
-
-const PORT = 3000;
-server.listen(PORT, () => {
-  console.log(`Proxy server listening on port ${PORT}`);
+const port = 3000;
+server.listen(port, () => {
+  console.log(`Proxy server listening on port ${port}`);
 });
